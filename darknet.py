@@ -28,6 +28,7 @@ Windows Python 2.7 version: https://github.com/AlexeyAB/darknet/blob/fc496d52bf2
 """
 #pylint: disable=R, W0401, W0614, W0703
 from ctypes import *
+import numpy as np
 import math
 import random
 import os
@@ -208,7 +209,6 @@ predict_image_letterbox.argtypes = [c_void_p, IMAGE]
 predict_image_letterbox.restype = POINTER(c_float)
 
 def array_to_image(arr):
-    import numpy as np
     # need to return old values to avoid python freeing memory
     arr = arr.transpose(2,0,1)
     c = arr.shape[0]
@@ -236,10 +236,12 @@ def detect(net, meta, image, thresh=.5, hier_thresh=.5, nms=.45, debug= False):
     Performs the meat of the detection
     """
     #pylint: disable= C0321
-    #im = load_image(image, 0, 0)
+    if isinstance(image, bytes):
+        image = load_image(image, 0, 0)
     if debug: print("Loaded image")
     ret = detect_image(net, meta, image, thresh, hier_thresh, nms, debug)
-    #free_image(image)
+    if isinstance(image, IMAGE):
+        free_image(image)
     if debug: print("freed image")
     return ret
 
@@ -250,7 +252,8 @@ def detect_image(net, meta, im, thresh=.5, hier_thresh=.5, nms=.45, debug= False
     #custom_image = cv2.resize(custom_image,(lib.network_width(net), lib.network_height(net)), interpolation = cv2.INTER_LINEAR)
     #import scipy.misc
     #custom_image = scipy.misc.imread(image)
-    im, arr = array_to_image(im)		# you should comment line below: free_image(im)
+    if isinstance(im, np.ndarray):
+        im, arr = array_to_image(im)		# you should comment line below: free_image(im)
     num = c_int(0)
     if debug: print("Assigned num")
     pnum = pointer(num)
@@ -299,7 +302,7 @@ netMain = None
 metaMain = None
 altNames = None
 
-def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yolov3.cfg", weightPath = "yolov3.weights", metaPath= "./cfg/coco.data", showImage= True, makeImageOnly = False, initOnly= False):
+def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yolov3.cfg", weightPath = "yolov3.weights", metaPath= "./cfg/coco.data", showImage= True, makeImageOnly = False, initOnly= False, updateConfig=False):
     """
     Convenience function to handle the detection and returns of objects.
 
@@ -355,11 +358,11 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
         raise ValueError("Invalid weight path `"+os.path.abspath(weightPath)+"`")
     if not os.path.exists(metaPath):
         raise ValueError("Invalid data file path `"+os.path.abspath(metaPath)+"`")
-    if netMain is None:
+    if netMain is None or updateConfig:
         netMain = load_net_custom(configPath.encode("ascii"), weightPath.encode("ascii"), 0, 1)  # batch size = 1
-    if metaMain is None:
+    if metaMain is None or updateConfig:
         metaMain = load_meta(metaPath.encode("ascii"))
-    if altNames is None:
+    if altNames is None or updateConfig:
         # In Python 3, the metafile default access craps out on Windows (but not Linux)
         # Read the names file and create a list to feed to detect
         try:
@@ -383,11 +386,13 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
     if initOnly:
         print("Initialized detector")
         return None
-    if not os.path.exists(imagePath):
+    if isinstance(imagePath, str) and not os.path.exists(imagePath):
         raise ValueError("Invalid image path `"+os.path.abspath(imagePath)+"`")
     # Do the detection
-    detections = detect(netMain, metaMain, imagePath, thresh)	# if is used cv2.imread(image)
-    #detections = detect(netMain, metaMain, imagePath.encode("ascii"), thresh)
+    if isinstance(imagePath, str):
+        detections = detect(netMain, metaMain, imagePath.encode("ascii"), thresh)
+    else:
+        detections = detect(netMain, metaMain, imagePath, thresh)	# if is used cv2.imread(image)
     if showImage:
         try:
             from skimage import io, draw
